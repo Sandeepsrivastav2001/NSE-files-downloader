@@ -1,0 +1,20 @@
+def show_captcha_popup_and_get_input(base_folder_path):
+	user_input = {}
+	def on_submit():
+		user_input['captcha'] = entry.get()
+		root.destroy()
+	latest_folder = get_latest_date_folder(base_folder_path)
+	image_path = get_latest_image_path(latest_folder)
+	root = Tk()
+	root.title("🔐 CAPTCHA Required")
+	img = Image.open(image_path)
+	img = img.crop((1040, 440, 1300, 580))
+	img = img.resize((230, 70))
+	img_tk = ImageTk.PhotoImage(img)
+	Label(root, text="Please enter the CAPTCHA:").pack(pady=5)
+	Label(root, image=img_tk).pack()
+	entry = Entry(root, font=('Arial', 14))
+	entry.pack(pady=5)
+	Button(root, text="Submit", command=on_submit).pack(pady=5)
+	root.mainloop()
+	return user_input.get("captcha", "")
