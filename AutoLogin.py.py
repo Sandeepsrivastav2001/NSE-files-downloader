@@ -1,196 +1,143 @@
-# ── CONFIG ───────────────────────────────────────────────────────────
-USERID = "VIPINENIT11893"
-MEMBERCODE = "11893"
-PASSWORD = "Cnbfinwiz@9876"
-EMAIL_ID = "dme@cnbfinwiz.com"
-APP_PASSWORD = "wgum xrke wxqm xdzv"
-DOWNLOAD_PATH = r"G:\My Drive\NSE Files"
-SLEEP_SHORT = 1
-MASTER_KEY = "mySecure@2025"
-
-# ── IMPORTS ───────────────────────────────────────────────────────────
-import os, time, traceback
-from datetime import datetime as _dt
-from tkinter import Tk, Label, Entry, Button, simpledialog, messagebox
-from PIL import Image, ImageTk
+import os
+import time
+import re
+import imaplib
+import email
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from tkinter import Tk, Label, Entry, Button, simpledialog
+from PIL import Image, ImageTk
 
-# ── SECURITY: Master Key Prompt ──────────────────────────────────────
-def verify_master_key():
-    root = Tk()
-    root.withdraw()
-    for _ in range(3):
-        input_key = simpledialog.askstring("🔐 Master Key Required", "Enter Master Key as Password to Start:", show='*')
-        if input_key == MASTER_KEY:
-            root.destroy()
-            print("✅ Master key accepted. Starting automation...")
-            return True
-        messagebox.showerror("❌ Invalid Key", "Wrong Master Key. Please Try again.")
-    root.destroy()
-    print("🔒 Access denied. Exiting.")
-    return False
+# === CONFIG ===
+USERID = "VIPINENIT11893"
+MEMBERCODE = "11893"
+PASSWORD = "Cnbfinwiz@9876"
+DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Desktop", "NSE Files")
 
-# ── GUI for CAPTCHA ──────────────────────────────────────────────────
-def show_captcha_popup_and_get_input(driver, base_path):
-    user_input = {}
-    folder = os.path.join(base_path, "screenshots", _dt.today().strftime("%Y-%m-%d"))
+EMAIL_USER = "dme@cnbfinwiz.com"
+EMAIL_PASS = "wgum xrke wxqm xdzv"
+
+def show_captcha(driver):
+    folder = os.path.join(DOWNLOAD_PATH, "captcha_screenshots")
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, f"captcha_{_dt.now().strftime('%H-%M-%S')}.png")
+    path = os.path.join(folder, "captcha.png")
     driver.save_screenshot(path)
-    print(f"📸 CAPTCHA Screenshot saved at: {path}")
+    img = Image.open(path).crop((1040, 440, 1300, 580))
+    img.save(path)
 
+    captcha_value = {}
     def on_submit():
-        user_input['captcha'] = entry.get()
+        captcha_value['text'] = entry.get()
         root.destroy()
 
     root = Tk()
-    root.title("🔐 CAPTCHA Required")
-    img = Image.open(path)
-    img = img.crop((1040, 440, 1300, 580))
-    img = img.resize((230, 70))
-    img_tk = ImageTk.PhotoImage(img)
-    Label(root, text="Please enter the CAPTCHA:").pack(pady=5)
+    root.title("Enter CAPTCHA")
+    img_tk = ImageTk.PhotoImage(img.resize((230, 70)))
     Label(root, image=img_tk).pack()
-    entry = Entry(root, font=('Arial', 14))
-    entry.pack(pady=5)
-    Button(root, text="Submit", command=on_submit).pack(pady=5)
+    entry = Entry(root, font=("Arial", 14))
+    entry.pack()
+    Button(root, text="Submit", command=on_submit).pack()
     root.mainloop()
-    return user_input.get("captcha", "")
+    return captcha_value.get("text", "")
 
-# ── UTILITIES ────────────────────────────────────────────────────────
-def is_today_date(txt):
-    today = _dt.today().date()
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y%m%d", "%d%m%Y"):
+def fetch_otp(email_user, email_pass, timeout=120):
+    mail = imaplib.IMAP4_SSL('imap.gmail.com')
+    mail.login(email_user, email_pass)
+    mail.select('inbox')
+
+    start = time.time()
+    while time.time() - start < timeout:
+        status, data = mail.search(None, '(UNSEEN)')
+        ids = data[0].split()
+        for num in reversed(ids):
+            status, msg_data = mail.fetch(num, '(RFC822)')
+            msg = email.message_from_bytes(msg_data[0][1])
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        body = part.get_payload(decode=True).decode()
+                        otp = re.search(r"\b(\d{4,6})\b", body)
+                        if otp:
+                            return otp.group(1)
+            else:
+                body = msg.get_payload(decode=True).decode()
+                otp = re.search(r"\b(\d{4,6})\b", body)
+                if otp:
+                    return otp.group(1)
+        time.sleep(5)
+    return None
+
+def fill_input(driver, elem, value):
+    # Clear and send keys slowly with JS input event
+    elem.clear()
+    for ch in value:
+        elem.send_keys(ch)
+        time.sleep(0.1)
+    # Trigger input event (sometimes required for validation)
+    driver.execute_script("arguments[0].dispatchEvent(new Event('input'));", elem)
+    driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", elem)
+
+def main():
+    opts = Options()
+    opts.add_argument("--start-maximized")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
+
+    try:
+        driver.get("https://ims.connect2nsccl.com/MemberPortal/")
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "userid")))
+
+        fill_input(driver, driver.find_element(By.ID, "userid"), USERID)
+        fill_input(driver, driver.find_element(By.ID, "memberCode"), MEMBERCODE)
+        fill_input(driver, driver.find_element(By.ID, "password1"), PASSWORD)
+
+        captcha_text = show_captcha(driver)
+        fill_input(driver, driver.find_element(By.ID, "UserCaptchaCode"), captcha_text)
+
+        # Dismiss modal if any
         try:
-            if _dt.strptime(txt.strip(), fmt).date() == today:
-                return True
+            modal = driver.find_element(By.ID, "myModal")
+            if modal.is_displayed():
+                driver.execute_script("arguments[0].style.display='none';", modal)
         except:
             pass
-    return False
 
-def try_all_clicks(driver, element):
-    for attempt in [
-        lambda el: el.click(),
-        lambda el: ActionChains(driver).move_to_element(el).click().perform(),
-        lambda el: driver.execute_script("arguments[0].click();", el),
-        lambda el: el.send_keys("\n"),
-        lambda el: (driver.execute_script("arguments[0].scrollIntoView(true);", el), time.sleep(0.5), driver.execute_script("arguments[0].click();", el)),
-        lambda el: (ActionChains(driver).move_by_offset(1, 1).click(el).perform()),
-        lambda el: driver.execute_script("el.click();", el),
-        lambda el: driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));", el),
-        lambda el: driver.execute_script("arguments[0].dispatchEvent(new Event('mousedown'));", el),
-        lambda el: driver.execute_script("arguments[0].dispatchEvent(new Event('mouseup'));", el),
-        lambda el: driver.execute_script("arguments[0].dispatchEvent(new Event('click'));", el),
-    ]:
-        try:
-            attempt(element)
-            return True
-        except:
-            continue
-    return False
+        login_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'LOGIN', 'login'), 'login')]")
+        driver.execute_script("arguments[0].click();", login_btn)
 
-# ── DOWNLOAD FILES ───────────────────────────────────────────────────
-def download_today_files(driver, downloaded=set()):
-    driver.get("https://ims.connect2nsccl.com/MemberPortal/extDownloads")
-    WebDriverWait(driver, 30).until(
-        EC.presence_of_element_located((By.XPATH, "//table//th[contains(text(),'Receive Date')]")))
-    time.sleep(SLEEP_SHORT * 2)
-    rows = driver.find_elements(By.XPATH, "//table//tbody/tr")
-    print(f"📄 Found {len(rows)} rows in downloads table")
-    new, fails = [], []
-    for row in rows:
-        cols = row.find_elements(By.TAG_NAME, "td")
-        if len(cols) < 4:
-            continue
-        date_txt = cols[0].text.strip()
-        fname = cols[2].text.strip()
-        download_cell = cols[-1]
-        if not is_today_date(date_txt) or fname in downloaded:
-            continue
-        try:
-            link = download_cell.find_element(By.XPATH, ".//a|.//button")
-            driver.execute_script("arguments[0].scrollIntoView(true);", link)
-            time.sleep(0.5)
-            success = try_all_clicks(driver, link)
-            if success:
-                new.append(fname)
-                downloaded.add(fname)
-                print(f"⬇️  Downloaded: {fname}")
-            else:
-                fails.append((fname, "All click attempts failed"))
-        except Exception as e:
-            fails.append((fname, f"Error: {e}"))
-    return new, fails
+        # Wait for OTP page or mainMenu page
+        WebDriverWait(driver, 60).until(
+            lambda d: "validateOtp" in d.current_url or "mainMenu" in d.current_url
+        )
 
-# ── LOGIN AND DOWNLOAD ──────────────────────────────────────────────
-def login_and_navigate_to_downloads(driver):
-    driver.get("https://ims.connect2nsccl.com/MemberPortal/")
-    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.TAG_NAME, "input")))
-    driver.find_element(By.ID, "userid").send_keys(USERID)
-    driver.find_element(By.ID, "memberCode").send_keys(MEMBERCODE)
-    driver.find_element(By.ID, "password1").send_keys(PASSWORD)
-    print("🔍 Waiting for CAPTCHA input via GUI...")
-    captcha_text = show_captcha_popup_and_get_input(driver, DOWNLOAD_PATH)
-    driver.find_element(By.ID, "UserCaptchaCode").send_keys(captcha_text)
-    print(f"✅ CAPTCHA filled using field ID 'UserCaptchaCode': {captcha_text}")
-    try:
-        modal = driver.find_element(By.ID, "myModal")
-        if modal.is_displayed():
-            driver.execute_script("arguments[0].style.display='none';", modal)
-            print("⚠️ Modal popup was dismissed before clicking login")
-    except:
-        pass
-    login_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'LOGIN', 'login'), 'login')]")
-    login_btn.click()
-    WebDriverWait(driver, 180).until(lambda d: "mainMenu" in d.current_url or "validateOtp" in d.current_url)
-    if "validateOtp" in driver.current_url:
-        raise NotImplementedError("🔐 OTP step needs to be implemented.")
-    print("✅ Logged in successfully. Navigating to Downloads...")
-    downloaded = set()
-    while True:
-        new, fails = download_today_files(driver, downloaded)
-        if new:
-            print("✅ New files downloaded:", new)
-        if fails:
-            print("❌ Failed:", fails)
-        print("⏳ Waiting 5 minutes before refresh...")
-        time.sleep(300)
+        if "validateOtp" in driver.current_url:
+            otp_input = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "otp")))
+            otp_code = fetch_otp(EMAIL_USER, EMAIL_PASS)
+            if not otp_code:
+                print("Failed to fetch OTP automatically.")
+                return
 
-# ── MAIN ────────────────────────────────────────────────────────────
-def main():
-    if not verify_master_key():
-        return
-    dated_folder = os.path.join(DOWNLOAD_PATH, _dt.today().strftime('%Y-%m-%d'))
-    os.makedirs(dated_folder, exist_ok=True)
-    opts = Options()
-    prefs = {
-        "download.default_directory": dated_folder,
-        "download.prompt_for_download": False,
-        "profile.default_content_settings.popups": 0,
-    }
-    opts.add_experimental_option("prefs", prefs)
-    opts.add_argument("--start-maximized")
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-    opts.add_experimental_option("useAutomationExtension", False)
+            fill_input(driver, otp_input, otp_code)
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
-    try:
-        login_and_navigate_to_downloads(driver)
+            submit_btn = driver.find_element(By.XPATH, "//button[contains(text(),'Submit') or contains(text(),'Verify')]")
+            driver.execute_script("arguments[0].click();", submit_btn)
+
+            WebDriverWait(driver, 60).until(lambda d: "mainMenu" in d.current_url)
+            print("✅ Logged in successfully with OTP!")
+
+        else:
+            print("✅ Logged in successfully without OTP!")
+
     except Exception as e:
-        print("❌ Error:", e)
-        traceback.print_exc()
+        print("Error during login:", e)
+
     finally:
-        input("⏹ Press ENTER to close browser...")
+        input("Press Enter to exit...")
         driver.quit()
 
-# ── RUN ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     main()
