@@ -1,35 +1,28 @@
-from docx import Document
-from docx.enum.text import WD_COLOR_INDEX
+import fitz  # PyMuPDF
 
-# Input & Output file path
-input_file = r"C:\Users\Administrator\Desktop\My.docx"       # Apni Word file ka naam
-output_file = r"C:\Users\Administrator\Desktop\output_highlighted.docx"
+input_pdf = r"C:\Users\Administrator\Desktop\KYC-FORM9-13.pdf"
+output_pdf = r"C:\Users\Administrator\Desktop\KYC-FORM9-interactive.pdf"
 
-# Box characters to detect (add more if needed)
-box_chars = ["□", "■", "☐", "❑", "❏"]
+doc = fitz.open(input_pdf)
 
-# Load the Word file
-doc = Document(input_file)
+# Example positions — replace with detection results
+checkboxes = [
+    (100, 150, 115, 165),
+    (100, 180, 115, 195)
+]
 
-# Function to highlight runs with box characters
-def highlight_boxes_in_runs(runs):
-    for run in runs:
-        for box in box_chars:
-            if box in run.text:
-                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+for page_index, page in enumerate(doc):
+    if page_index == 0:
+        for i, rect in enumerate(checkboxes):
+            widget = page.new_widget(
+                rect=fitz.Rect(rect),
+                field_name=f"chk_{page_index}_{i}",
+                field_type=fitz.PDF_WIDGET_TYPE_CHECKBOX
+            )
+            widget.field_value = "Off"   # Start unchecked
+            widget.update()
 
-# Process paragraphs
-for para in doc.paragraphs:
-    highlight_boxes_in_runs(para.runs)
+doc.save(output_pdf)
+doc.close()
 
-# Process tables (Word me boxes table ke cells me bhi ho sakte hain)
-for table in doc.tables:
-    for row in table.rows:
-        for cell in row.cells:
-            for para in cell.paragraphs:
-                highlight_boxes_in_runs(para.runs)
-
-# Save the updated document
-doc.save(output_file)
-
-print(f"Done! Highlighted file saved as: {output_file}")
+print(f"✅ PDF saved with interactive checkboxes: {output_pdf}")
