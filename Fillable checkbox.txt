@@ -1,0 +1,88 @@
+import fitz  # PyMuPDF
+import cv2
+import numpy as np
+
+def make_real_checkboxes(pdf_path, output_path, preview_img_path=None):
+    doc = fitz.open(pdf_path)
+
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+
+        # Render PDF page to image for box detection
+        pix = page.get_pixmap(dpi=600)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+        if img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Combine adaptive + binary + edges for better detection
+        adaptive = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                         cv2.THRESH_BINARY_INV, 21, 15)
+        _, binary = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+        edges = cv2.Canny(gray, 40, 150)
+        combined = cv2.bitwise_or(cv2.bitwise_or(adaptive, binary), edges)
+
+        # Morphology to enhance boxes
+        k1 = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        k2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        mask = cv2.dilate(combined, k1, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k2, iterations=1)
+
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        boxes = []
+        for cnt in contours:
+            approx = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
+            if len(approx) == 4:  # rectangle
+                x, y, w, h = cv2.boundingRect(approx)
+                ar = w / float(h)
+                area = w * h
+                # Wider range for checkboxes
+                if 5 < w < 400 and 5 < h < 200 and 0.2 < ar < 6 and 20 < area < 50000:
+                    boxes.append((x, y, w, h))
+
+        # Preview for first page
+        if preview_img_path and page_num == 0:
+            preview = img.copy()
+            for x, y, w, h in boxes:
+                cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 1)
+            cv2.imwrite(preview_img_path, preview)
+            print(f"🖼 Preview saved: {preview_img_path}")
+
+        # Sort boxes by reading order
+        boxes.sort(key=lambda b: (b[1], b[0]))
+
+        # Create interactive checkboxes
+        for idx, (x, y, w, h) in enumerate(boxes):
+            rect = fitz.Rect(
+                x * page.rect.width / pix.width,
+                y * page.rect.height / pix.height,
+                (x + w) * page.rect.width / pix.width,
+                (y + h) * page.rect.height / pix.height
+            )
+
+            field_name = f"chk_{page_num}_{idx}"
+
+            # Create checkbox widget
+            widget = fitz.Widget()
+            widget.rect = rect
+            widget.field_name = field_name
+            widget.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+            widget.field_value = "Off"  # initial state
+            widget.button_caption = "✓"  # actual tick mark
+            widget.field_flags = 0
+            page.add_widget(widget)
+
+    doc.need_appearances = True
+    doc.save(output_path, garbage=4, deflate=True, clean=True)
+    print(f"\n✅ Saved: {output_path} with clickable ✓ checkboxes")
+
+
+# ========== RUN ==========
+input_pdf = r"C:\Users\Administrator\Desktop\page1-8.pdf"
+output_pdf = r"C:\Users\Administrator\Desktop\Updatedpage1-8_real_tick.pdf"
+preview_image = r"C:\Users\Administrator\Desktop\My Work\Python.py\Boxes_Preview_Page0.png"
+
+make_real_checkboxes(input_pdf, output_pdf, preview_image)

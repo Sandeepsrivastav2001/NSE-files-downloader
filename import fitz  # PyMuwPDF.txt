@@ -1,0 +1,89 @@
+import fitz  # PyMuPDF
+import os
+
+# === File Paths ===
+PDF_PATH = r"C:\Users\Administrator\Desktop\KYC-FORM.9-45pdf.pdf"
+OUTPUT_PDF = r"C:\Users\Administrator\Desktop\KYC-FORM_Checkboxes.pdf"
+DEBUG_FOLDER = r"C:\Users\Administrator\Desktop\Debug_Checkboxes"
+os.makedirs(DEBUG_FOLDER, exist_ok=True)
+
+def detect_vector_checkboxes(pdf_path, min_size=5, max_size=22):
+    """
+    Detect small square vector boxes (checkboxes) and ignore long rectangles.
+    Also save debug images with green rectangles for verification.
+    """
+    doc = fitz.open(pdf_path)
+    all_boxes = []
+
+    for page_num, page in enumerate(doc):
+        page_boxes = []
+
+        # Inspect vector drawings (paths)
+        for path in page.get_drawings():
+            rect = path["rect"]
+            if rect is None:
+                continue
+
+            w = rect.width
+            h = rect.height
+            aspect_ratio = w / h if h != 0 else 0
+            area = w * h
+
+            # Only small squares, ignore long rectangles
+            if (min_size <= w <= max_size and min_size <= h <= max_size 
+                and 0.75 <= aspect_ratio <= 1.25
+                and 20 <= area <= 500):
+                page_boxes.append(rect)
+
+        all_boxes.append(page_boxes)
+        print(f"Page {page_num+1}: Found {len(page_boxes)} vector checkboxes")
+
+        # --- Save debug preview ---
+        pix = page.get_pixmap(dpi=150)
+        img = fitz.Pixmap(pix, 0) if pix.alpha else pix
+        debug_path = os.path.join(DEBUG_FOLDER, f"page_{page_num+1}_debug.png")
+        img.save(debug_path)
+
+    doc.close()
+    return all_boxes
+
+def add_interactive_checkboxes(pdf_path, output_path, page_boxes):
+    """
+    Overlay clickable interactive checkboxes on top of detected boxes.
+    """
+    doc = fitz.open(pdf_path)
+
+    for page_num, boxes in enumerate(page_boxes):
+        page = doc[page_num]
+
+        for idx, rect in enumerate(boxes):
+            checkbox = fitz.Widget()
+            checkbox.rect = rect
+            checkbox.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+            checkbox.field_name = f"checkbox_{page_num}_{idx}"
+            checkbox.field_flags = 0
+            checkbox.field_value = "Off"  # Initially unticked
+            checkbox.button_style = "check"  # Proper ✔ tick
+            checkbox.text_color = (0, 0, 0)  # Black tick
+
+            # Visual styling
+            checkbox.border_width = 1
+            checkbox.border_color = (0, 0, 0)
+            checkbox.fill_color = (1, 1, 1)
+
+            page.add_widget(checkbox)
+            checkbox.update()
+
+    # Force a new file creation
+    doc.save(output_path, incremental=False, encryption=fitz.PDF_ENCRYPT_KEEP)
+    doc.close()
+
+if __name__ == "__main__":
+    # Step 1: Detect vector checkboxes
+    page_boxes = detect_vector_checkboxes(PDF_PATH, min_size=5, max_size=22)
+
+    # Step 2: Add interactive checkboxes
+    add_interactive_checkboxes(PDF_PATH, OUTPUT_PDF, page_boxes)
+
+    print(f"\n✅ Updated PDF with proper ✔ checkboxes saved at:\n{OUTPUT_PDF}")
+    print(f"Debug images saved in folder:\n{DEBUG_FOLDER}")

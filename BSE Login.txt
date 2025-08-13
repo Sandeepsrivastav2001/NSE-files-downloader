@@ -1,0 +1,142 @@
+import io
+import time
+import tkinter as tk
+from PIL import Image, ImageTk
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+# ===== CONFIG =====
+BSE_URL = "https://member.bseindia.com/Extranet_Login.aspx"
+MEMBER_CODE = "0178"      # Your Member Code
+USER_ID = "0178"          # Your User ID
+PASSWORD = "Wild@12345"   # Your Password
+# ==================
+
+# Setup Selenium
+options = Options()
+options.add_argument("--start-maximized")
+driver = webdriver.Chrome(service=Service(), options=options)
+wait = WebDriverWait(driver, 20)
+
+def js_type(element, text):
+    driver.execute_script("""
+        var el = arguments[0], txt = arguments[1];
+        el.focus();
+        el.value = '';
+        for (let i = 0; i < txt.length; i++) {
+            let ch = txt[i];
+            el.value += ch;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    """, element, text)
+
+def fill_credentials():
+    inputs = driver.find_elements(By.XPATH, "//input[@type='text' or @type='password']")
+    js_type(inputs[0], MEMBER_CODE)
+    js_type(inputs[1], USER_ID)
+    js_type(inputs[2], PASSWORD)
+    driver.execute_script("arguments[0].focus();", inputs[2])
+    inputs[2].send_keys("\t")
+    print("✅ Credentials filled, tabbed to CAPTCHA.")
+
+def get_captcha_image():
+    captcha_el = driver.find_element(By.XPATH, "//img[contains(@id,'Captcha')]")
+    captcha_png = captcha_el.screenshot_as_png
+    return Image.open(io.BytesIO(captcha_png))
+
+def show_captcha_popup():
+    img = get_captcha_image()
+    def submit():
+        captcha_text = entry.get()
+        captcha_input = driver.find_elements(By.XPATH, "//input[@type='text' or @type='password']")[3]
+        js_type(captcha_input, captcha_text)
+        driver.find_element(By.XPATH, "//input[@value='Login']").click()
+        print(f"🚀 Submitted CAPTCHA: {captcha_text}")
+        root.destroy()
+
+    root = tk.Tk()
+    root.title("Enter CAPTCHA")
+    tk.Label(root, text="Please enter CAPTCHA:").pack()
+    tk_img = ImageTk.PhotoImage(img)
+    tk.Label(root, image=tk_img).pack()
+    entry = tk.Entry(root, font=("Arial", 14))
+    entry.pack(pady=5)
+    tk.Button(root, text="Submit", command=submit).pack(pady=5)
+    root.mainloop()
+
+def handle_alert_if_present():
+    try:
+        alert = driver.switch_to.alert
+        text = alert.text
+        alert.accept()
+        print(f"⚠ Alert detected and closed: {text}")
+        return text
+    except:
+        return None
+
+def try_click_eq_in_context(context_description="main page"):
+    """
+    Try to find and click 'EQ' link or cell in current driver context (page or iframe)
+    Returns True if clicked successfully, else False
+    """
+    print(f"🔍 Trying to find 'EQ' on {context_description}...")
+    try:
+        # Try both <a> and <td> containing 'EQ'
+        eq_element = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'EQ')] | //td[contains(text(),'EQ')]")))
+        eq_element.click()
+        print(f"✅ 'EQ' clicked successfully on {context_description}.")
+        return True
+    except TimeoutException:
+        print(f"❌ 'EQ' NOT found or NOT clickable on {context_description}.")
+        return False
+
+def login_and_click_eq():
+    driver.get(BSE_URL)
+    while True:
+        if driver.current_url == BSE_URL:
+            print("🔄 Login page detected. Filling credentials...")
+            fill_credentials()
+            show_captcha_popup()
+            time.sleep(3)
+            alert_text = handle_alert_if_present()
+            if alert_text and "Invalid" in alert_text:
+                print("❌ Login failed. Retrying...")
+                continue
+        else:
+            print("✅ Logged in successfully.")
+            break
+
+    time.sleep(3)  # wait for full page load after login
+
+    # Step 1: Try clicking EQ on main page
+    if try_click_eq_in_context("main page"):
+        return
+
+    # Step 2: If not found, check iframes and try inside each iframe
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    if not iframes:
+        print("⚪ No iframes found on the page.")
+    else:
+        print(f"ℹ Found {len(iframes)} iframe(s). Trying inside them...")
+        for i, iframe in enumerate(iframes):
+            print(f"➡ Switching to iframe {i + 1} / {len(iframes)}")
+            driver.switch_to.default_content()  # Always reset before switching
+            driver.switch_to.frame(iframe)
+            if try_click_eq_in_context(f"iframe #{i + 1}"):
+                return
+        print("❌ 'EQ' not found in any iframe.")
+
+    print("❌ Failed to find and click 'EQ' element anywhere.")
+
+# Run
+login_and_click_eq()
+
+print("🌐 Browser will stay open. Close it manually when done.")
+while True:
+    time.sleep(1)
